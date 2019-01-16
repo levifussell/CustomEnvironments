@@ -24,6 +24,8 @@ class PredatorPrey2(gym.Env):
         # predator parameters
         self.num_predators = 2
         self.predator_positions = [[-1, -1]]*self.num_predators
+        # how far the predator can see. Represents a (2V+1) x (2V+1) square boundary.
+        self.predator_vision = 2
 
         # prey parameters
         # (TODO: multiply prey targets)
@@ -37,6 +39,10 @@ class PredatorPrey2(gym.Env):
                             3 : [-1, 0], #left
                             4 : [0, 0] #stay
                         }
+
+        # for rendering
+        self.last_reward_total = [0.0]*self.num_predators
+        self.last_state = [0.0]*self.num_predators
 
     def init_curses(self):
         self.stdscr = curses.initscr()
@@ -82,21 +88,41 @@ class PredatorPrey2(gym.Env):
         for a in range(self.num_predators):
             for p in range(self.num_predators):
                 if a != p:
-                    obs_all_predators[a].extend(self.__diff_pos__(
-                                                self.predator_positions[p],
-                                                self.predator_positions[a]
-                                                ))
+                    # only if they are within sight.
+                    diff = self.__diff_pos__(self.predator_positions[p],
+                                                self.predator_positions[a])
+                    # Manhattan distance.
+                    if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_vision:
+                        obs_all_predators[a].extend(diff)
+                        # binary state telling that the predator is in view.
+                        #  Scaled to cancel normalisation effects.
+                        obs_all_predators[a].extend([1.0*self.GRID_DIM])
+                    else:
+                        obs_all_predators[a].extend([0.0, 0.0])
+                        # binary state telling that the predator isn't in view.
+                        obs_all_predators[a].extend([0.0])
 
             # add the position of the prey
-            obs_all_predators[a].extend(self.__diff_pos__(
-                                        self.prey_position,
-                                        self.predator_positions[a]
-                                        ))
+            diff = self.__diff_pos__(self.prey_position,
+                                        self.predator_positions[a])
+            if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_vision:
+                obs_all_predators[a].extend(diff)
+                # binary state telling that the prey is in view.
+                #  Scaled to cancel normalisation effects.
+                obs_all_predators[a].extend([1.0*self.GRID_DIM])
+            else:
+                obs_all_predators[a].extend([0.0, 0.0])
+                # binary state telling that the prey isn't in view.
+                obs_all_predators[a].extend([0.0])
 
         assert len(obs_all_predators) == self.num_predators, "observation information incorrect: {}".format(obs_all_predators)
 
-        # normalise the obs
+        # normalise the obs.
+        # TODO: this will also scale the binary state for detecting other agents are in view.
+        #   This should be fine, but potentially corrected in the future.
         obs_all_norm = [(np.array(o).astype(float)/float(self.GRID_DIM)).tolist() for o in obs_all_predators]
+
+        self.last_state = obs_all_norm
 
         return obs_all_norm
 
@@ -107,11 +133,15 @@ class PredatorPrey2(gym.Env):
         assert len(actions) == self.num_predators, "number of actions must be equal to number of predators: {}".format(actions)
 
         #TODO: for now, actions are forced to be discrete. 
+        #print('pos before: ', self.predator_positions)
         for a in range(len(actions)):
             pos_to_add = self.AGENT_ACTIONS[np.argmax(actions[a])]
+            #print('\t', pos_to_add)
             self.predator_positions[a] = self.__bound_pos__(
                                         self.__add_pos__(self.predator_positions[a], pos_to_add)
                                         )
+
+        #print('pos after: ', self.predator_positions)
 
     def __get_reward_and_done__(self):
         '''
@@ -122,10 +152,14 @@ class PredatorPrey2(gym.Env):
         dones   : list of terminations of the env. For now it is the same for all predators.
         '''
 
+        collisions = [np.all(np.equal(p, self.prey_position)).astype(float) for p in self.predator_positions]
+        #total_collisions = np.sum(collisions)
+
         single_rewards = [
                 self.TIME_PENALTY + \
-                self.PREY_REWARD * np.all(np.equal(p, self.prey_position)).astype(float) \
-                for p in self.predator_positions
+                #self.PREY_REWARD * np.all(np.equal(p, self.prey_position)).astype(float) \
+                self.PREY_REWARD * c \
+                for p,c in zip(self.predator_positions, collisions)
                 ]
 
         total_reward = np.sum(single_rewards)
@@ -134,9 +168,11 @@ class PredatorPrey2(gym.Env):
         #  cooperation is encouraged.
         #  TODO: test behaviours with and without coop. rewards.
         coop_rewards = [total_reward]*self.num_predators
+        #coop_rewards = single_rewards[:]
 
         # if every predator reaches the reward the environment terminates
-        dones = [total_reward == (self.TIME_PENALTY + self.PREY_REWARD)*self.num_predators]*self.num_predators
+        #dones = [total_reward == (self.TIME_PENALTY + self.PREY_REWARD*self.num_predators)*self.num_predators]*self.num_predators
+        dones = [False]*self.num_predators
 
         assert len(coop_rewards) == self.num_predators, "reward information incorrect: {}".format(rewards)
 
@@ -155,6 +191,9 @@ class PredatorPrey2(gym.Env):
         #self.prey_position[0] = self.np_random.randint(self.GRID_DIM)
         #self.prey_position[1] = self.np_random.randint(self.GRID_DIM)
         self.prey_position = self.np_random.randint(self.GRID_DIM, size= 2).tolist()
+
+        self.last_reward_total = [0.0]*self.num_predators
+        self.last_state = [0.0]*self.num_predators
 
         obs_all = self.__get_obs__()
         return obs_all
@@ -176,6 +215,9 @@ class PredatorPrey2(gym.Env):
         # get the reward
         rewards, dones = self.__get_reward_and_done__()
 
+        for r in range(len(rewards)):
+            self.last_reward_total[r] += rewards[r]
+
         # get the next state/observation
         obs = self.__get_obs__()
 
@@ -194,6 +236,7 @@ class PredatorPrey2(gym.Env):
         PRED_ICON = 'X'
         PREY_ICON = 'O'
         SPACE_ICON = '-'
+
         
         # draw predator
         for p in self.predator_positions:
@@ -209,6 +252,7 @@ class PredatorPrey2(gym.Env):
         else:
             grid[self.prey_position[0],self.prey_position[1]] = PREY_ICON
 
+
         for row_num, row in enumerate(grid):
             for idx, item in enumerate(row):
                 if item != 0:
@@ -221,7 +265,15 @@ class PredatorPrey2(gym.Env):
                 else:
                     self.stdscr.addstr(row_num, idx * 4, SPACE_ICON.center(3), curses.color_pair(4))
 
-        self.stdscr.addstr(len(grid), 0, '\n')
+        # add score
+        self.stdscr.addstr(len(grid), 0, 'R')
+        self.stdscr.addstr(len(grid), 1, str(self.last_reward_total))
+
+        # add state
+        self.stdscr.addstr(len(grid)+1, 0, 'S')
+        self.stdscr.addstr(len(grid)+1, 1, str(self.last_state))
+
+        self.stdscr.addstr(len(grid)+2, 0, '\n')
         self.stdscr.refresh()
 
     def exit_render(self):
@@ -231,12 +283,15 @@ if __name__ == '__main__':
     env = gym.make('predator-prey-v2')
     env.init_curses()
     _ = env.reset()
-    for i in range(1000):
+    total_reward = 0.0
+    for i in range(150):
         acts = [np.random.rand(5).tolist() for _ in range(2)] 
 
         env.render()
         obvs, rewards, dones, _ = env.step(acts)
+        total_reward += rewards[0]
 
-        time.sleep(0.3)
+        time.sleep(0.2)
         #print(obvs, rewards, dones)
-
+    env.exit_render()
+    print(total_reward)
