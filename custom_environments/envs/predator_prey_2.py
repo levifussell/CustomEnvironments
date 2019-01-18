@@ -22,10 +22,11 @@ class PredatorPrey2(gym.Env):
         self.GRID_DIM = 10
 
         # predator parameters
-        self.num_predators = 2
+        self.num_predators = 10
         self.predator_positions = [[-1, -1]]*self.num_predators
         # how far the predator can see. Represents a (2V+1) x (2V+1) square boundary.
-        self.predator_vision = 2
+        #self.predator_visions = [200, 2]
+        self.predator_visions = [1]*self.num_predators
 
         # prey parameters
         # (TODO: multiply prey targets)
@@ -78,9 +79,6 @@ class PredatorPrey2(gym.Env):
         return pos
 
     def __get_obs__(self):
-        #TODO: for now all predators have full vision and can
-        #  see each other clearly.
-
         # add each predator's own position
         obs_all_predators = [p[:] for p in self.predator_positions]
 
@@ -92,7 +90,7 @@ class PredatorPrey2(gym.Env):
                     diff = self.__diff_pos__(self.predator_positions[p],
                                                 self.predator_positions[a])
                     # Manhattan distance.
-                    if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_vision:
+                    if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_visions[a]:
                         obs_all_predators[a].extend(diff)
                         # binary state telling that the predator is in view.
                         #  Scaled to cancel normalisation effects.
@@ -105,7 +103,7 @@ class PredatorPrey2(gym.Env):
             # add the position of the prey
             diff = self.__diff_pos__(self.prey_position,
                                         self.predator_positions[a])
-            if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_vision:
+            if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_visions[a]:
                 obs_all_predators[a].extend(diff)
                 # binary state telling that the prey is in view.
                 #  Scaled to cancel normalisation effects.
@@ -115,8 +113,13 @@ class PredatorPrey2(gym.Env):
                 # binary state telling that the prey isn't in view.
                 obs_all_predators[a].extend([0.0])
 
-        assert len(obs_all_predators) == self.num_predators, "observation information incorrect: {}".format(obs_all_predators)
+            # finally add the ID of the predator as a one-hot value
+            #id_one_hot = [0.0]*self.num_predators
+            #id_one_hot[a] = 1.0*self.GRID_DIM
+            #obs_all_predators[a].extend(id_one_hot)
 
+        assert len(obs_all_predators) == self.num_predators, "observation information incorrect: {}".format(obs_all_predators)
+        #print(len(obs_all_predators[0]))
         # normalise the obs.
         # TODO: this will also scale the binary state for detecting other agents are in view.
         #   This should be fine, but potentially corrected in the future.
@@ -153,22 +156,22 @@ class PredatorPrey2(gym.Env):
         '''
 
         collisions = [np.all(np.equal(p, self.prey_position)).astype(float) for p in self.predator_positions]
-        #total_collisions = np.sum(collisions)
+        total_collisions = np.sum(collisions)
 
         single_rewards = [
                 self.TIME_PENALTY + \
                 #self.PREY_REWARD * np.all(np.equal(p, self.prey_position)).astype(float) \
-                self.PREY_REWARD * c \
+                self.PREY_REWARD * c * total_collisions \
                 for p,c in zip(self.predator_positions, collisions)
                 ]
 
-        total_reward = np.sum(single_rewards)
+        #total_reward = np.sum(single_rewards)
 
         # the reward is the sum of all predator rewards so that
         #  cooperation is encouraged.
         #  TODO: test behaviours with and without coop. rewards.
-        coop_rewards = [total_reward]*self.num_predators
-        #coop_rewards = single_rewards[:]
+        #coop_rewards = [total_reward]*self.num_predators
+        coop_rewards = single_rewards[:]
 
         # if every predator reaches the reward the environment terminates
         #dones = [total_reward == (self.TIME_PENALTY + self.PREY_REWARD*self.num_predators)*self.num_predators]*self.num_predators
@@ -194,6 +197,10 @@ class PredatorPrey2(gym.Env):
 
         self.last_reward_total = [0.0]*self.num_predators
         self.last_state = [0.0]*self.num_predators
+        
+        #self.predator_visions = [1]*self.num_predators
+        self.predator_visions = [0]*self.num_predators
+        self.predator_visions[0] = 200
 
         obs_all = self.__get_obs__()
         return obs_all
@@ -233,17 +240,24 @@ class PredatorPrey2(gym.Env):
         grid = np.zeros((self.GRID_DIM, self.GRID_DIM), dtype=object)
         self.stdscr.clear()
 
-        PRED_ICON = 'X'
+        PRED_ICON_V = 'D'
+        PRED_ICON_N = 'X'
         PREY_ICON = 'O'
         SPACE_ICON = '-'
 
         
         # draw predator
-        for p in self.predator_positions:
+        for idx,p in enumerate(self.predator_positions):
             if grid[p[0],p[1]] != 0:
-                grid[p[0],p[1]] = str(grid[p[0],p[1]]) + PRED_ICON
+                if self.predator_visions[idx] > 20:
+                    grid[p[0],p[1]] = str(grid[p[0],p[1]]) + PRED_ICON_V
+                else:
+                    grid[p[0],p[1]] = str(grid[p[0],p[1]]) + PRED_ICON_N
             else:
-                grid[p[0],p[1]] = PRED_ICON
+                if self.predator_visions[idx] > 20:
+                    grid[p[0],p[1]] = PRED_ICON_V
+                else:
+                    grid[p[0],p[1]] = PRED_ICON_N
 
         # draw prey
         if grid[self.prey_position[0],self.prey_position[1]] != 0:
@@ -256,9 +270,9 @@ class PredatorPrey2(gym.Env):
         for row_num, row in enumerate(grid):
             for idx, item in enumerate(row):
                 if item != 0:
-                    if PRED_ICON in item and PREY_ICON in item:
+                    if (PRED_ICON_V in item or PRED_ICON_N in item) and PREY_ICON in item:
                         self.stdscr.addstr(row_num, idx * 4, item.center(3), curses.color_pair(3))
-                    elif PRED_ICON in item:
+                    elif (PRED_ICON_V in item or PRED_ICON_N in item):
                         self.stdscr.addstr(row_num, idx * 4, item.center(3), curses.color_pair(1))
                     else:
                         self.stdscr.addstr(row_num, idx * 4, item.center(3),  curses.color_pair(2))
