@@ -1,2 +1,3 @@
 from custom_environments.envs.discrete_predator_prey import PredatorPreyEnv
 from custom_environments.envs.predator_prey_2 import PredatorPrey2
+from custom_environments.envs.multi_agent_to_single_agent_env import MultiAgentToSingleAgentEnv

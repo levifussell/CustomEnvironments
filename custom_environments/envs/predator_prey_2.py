@@ -22,7 +22,7 @@ class PredatorPrey2(gym.Env):
         self.GRID_DIM = 10
 
         # predator parameters
-        self.num_predators = 10 
+        self.num_predators = 5
         self.predator_positions = [[-1, -1]]*self.num_predators
         # how far the predator can see. Represents a (2V+1) x (2V+1) square boundary.
         #self.predator_visions = [200, 2]
