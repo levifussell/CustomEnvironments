@@ -15,14 +15,14 @@ class PredatorPrey2(gym.Env):
         self.seed()
 
         # reward constants
-        self.TIME_PENALTY = -0.5
-        self.PREY_REWARD = +10.0 - self.TIME_PENALTY
+        self.TIME_PENALTY = -0.05
+        self.PREY_REWARD = +0.05 #+10.0 - self.TIME_PENALTY
 
         # grid information
         self.GRID_DIM = 10
 
         # predator parameters
-        self.num_predators = 10
+        self.num_predators = 10 
         self.predator_positions = [[-1, -1]]*self.num_predators
         # how far the predator can see. Represents a (2V+1) x (2V+1) square boundary.
         #self.predator_visions = [200, 2]
@@ -90,7 +90,7 @@ class PredatorPrey2(gym.Env):
                     diff = self.__diff_pos__(self.predator_positions[p],
                                                 self.predator_positions[a])
                     # Manhattan distance.
-                    if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_visions[a]:
+                    if abs(diff[0]) + abs(diff[1]) <= 2 * self.predator_visions[a]:
                         obs_all_predators[a].extend(diff)
                         # binary state telling that the predator is in view.
                         #  Scaled to cancel normalisation effects.
@@ -103,7 +103,7 @@ class PredatorPrey2(gym.Env):
             # add the position of the prey
             diff = self.__diff_pos__(self.prey_position,
                                         self.predator_positions[a])
-            if abs(diff[0]) + abs(diff[1]) < 2 * self.predator_visions[a]:
+            if abs(diff[0]) + abs(diff[1]) <= 2 * self.predator_visions[a]:
                 obs_all_predators[a].extend(diff)
                 # binary state telling that the prey is in view.
                 #  Scaled to cancel normalisation effects.
@@ -159,7 +159,7 @@ class PredatorPrey2(gym.Env):
         total_collisions = np.sum(collisions)
 
         single_rewards = [
-                self.TIME_PENALTY + \
+                (1.0 - c) * self.TIME_PENALTY + \
                 #self.PREY_REWARD * np.all(np.equal(p, self.prey_position)).astype(float) \
                 self.PREY_REWARD * c * total_collisions \
                 for p,c in zip(self.predator_positions, collisions)
@@ -199,8 +199,8 @@ class PredatorPrey2(gym.Env):
         self.last_state = [0.0]*self.num_predators
         
         #self.predator_visions = [1]*self.num_predators
-        self.predator_visions = [0]*self.num_predators
-        self.predator_visions[0] = 200
+        #self.predator_visions = [3]*self.num_predators
+        #self.predator_visions[0] = 200
 
         obs_all = self.__get_obs__()
         return obs_all
